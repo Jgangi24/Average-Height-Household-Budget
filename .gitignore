@@ -1,0 +1,6 @@
+# Publish only the app and its artwork. Everything else stays on this laptop.
+/*
+!/.gitignore
+!/index.html
+!/Assets/
+.DS_Store
