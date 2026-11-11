@@ -562,8 +562,10 @@ async function afterLogin(){
   S.screen="loading";render();
   await loadData();
   S.screen="app";S.tab="month";S.stack=[];S.form=null;render();
+  startLiveSync();
 }
 async function doSignOut(){
+  stopLiveSync();
   await sb.auth.signOut();
   S.screen="login";S.form=null;S.err={};S.yearInlineIncome=null;S.billInlineAdd=null;S.billInlineMonth=null;
   S.data={bills:[],billPayments:[],income:[],phonePayers:[],phonePayments:[],bank:null,loanEvents:[],loanPayments:[],yearIncome:[],yearBillPayments:[],yearIncomePrior:[],yearBillPaymentsPrior:[],allBillsById:{},billHistoryAll:[]};
@@ -1583,6 +1585,32 @@ document.body.addEventListener("change",e=>{
   if(t.name==="freq"&&S.form){S.form.freq=t.value}
   if(t.tagName==="SELECT"&&t.name&&S.form){S.form[t.name]=t.value}
 });
+/* ---------- live sync (so Jess and Abby see each other's changes) ---------- */
+const LIVE_TABLES=["budget_bills","budget_bill_payments","budget_income_entries","budget_phone_payers","budget_phone_payments","budget_bank_balance","budget_loan_events"];
+let liveChannel=null,liveTimer=null,livePoll=null,liveBusy=false;
+const isEditing=()=>!!(S.form||S.busy||S.monthEditBill||S.yearInlineIncome||S.billInlineAdd||S.billInlineMonth);
+async function refreshLive(){
+  if(S.screen!=="app"||liveBusy||document.hidden||isEditing())return;
+  liveBusy=true;
+  try{await loadData();if(S.screen==="app"&&!isEditing())render()}catch(e){}
+  liveBusy=false;
+}
+function scheduleLiveRefresh(){clearTimeout(liveTimer);liveTimer=setTimeout(refreshLive,400)}
+function startLiveSync(){
+  stopLiveSync();
+  try{
+    let ch=sb.channel("budget-live");
+    LIVE_TABLES.forEach(t=>{ch=ch.on("postgres_changes",{event:"*",schema:"public",table:t},scheduleLiveRefresh)});
+    ch.subscribe();liveChannel=ch;
+  }catch(e){}
+  // Safety net in case the live connection drops: re-check every 30s while the app is open.
+  livePoll=setInterval(refreshLive,30000);
+}
+function stopLiveSync(){
+  clearTimeout(liveTimer);clearInterval(livePoll);livePoll=null;
+  if(liveChannel){try{sb.removeChannel(liveChannel)}catch(e){}liveChannel=null}
+}
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshLive()});
 /* ---------- init ---------- */
 let skipSplash=()=>{};
 function beginSplash(){
